@@ -1,8 +1,8 @@
+import spaces
 import gradio as gr
 import torch
 from PIL import Image
 from diffusers import QwenImageEditPlusPipeline
-import spaces
 
 # Load pipeline at startup
 pipeline = QwenImageEditPlusPipeline.from_pretrained(
