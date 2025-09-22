@@ -1,0 +1,13 @@
+git+https://github.com/huggingface/diffusers
+git+https://github.com/huggingface/transformers
+sentencepiece
+accelerate
+torch
+torchvision
+torchaudio
+gradio
+spaces
+Pillow
+tokenizers
+numpy
+requests
