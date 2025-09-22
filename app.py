@@ -1,56 +1,47 @@
 import spaces
 import gradio as gr
 import torch
+import math
 from PIL import Image
-from diffusers import QwenImageEditPlusPipeline
+from diffusers import QwenImageEditPlusPipeline, FlowMatchEulerDiscreteScheduler
 
-# Load pipeline at startup
+# Load pipeline with optimized scheduler at startup
+scheduler_config = {
+    "base_image_seq_len": 256,
+    "base_shift": math.log(3),
+    "invert_sigmas": False,
+    "max_image_seq_len": 8192,
+    "max_shift": math.log(3),
+    "num_train_timesteps": 1000,
+    "shift": 1.0,
+    "shift_terminal": None,
+    "stochastic_sampling": False,
+    "time_shift_type": "exponential",
+    "use_beta_sigmas": False,
+    "use_dynamic_shifting": True,
+    "use_exponential_sigmas": False,
+    "use_karras_sigmas": False,
+}
+scheduler = FlowMatchEulerDiscreteScheduler.from_config(scheduler_config)
+
 pipeline = QwenImageEditPlusPipeline.from_pretrained(
     "Qwen/Qwen-Image-Edit-2509", 
+    scheduler=scheduler,
     torch_dtype=torch.bfloat16
 )
 pipeline.to('cuda')
 pipeline.set_progress_bar_config(disable=None)
 
-# AoT Compilation for Qwen Image Edit Plus
-@spaces.GPU(duration=1500)
-def compile_qwen_transformer():
-    import torch
-    from diffusers import QwenImageEditPlusPipeline
-    
-    # Create a temporary pipeline for compilation
-    compile_pipe = QwenImageEditPlusPipeline.from_pretrained(
-        "Qwen/Qwen-Image-Edit-2509", 
-        torch_dtype=torch.bfloat16
-    )
-    compile_pipe.to('cuda')
-    
-    # Capture inputs for the transformer
-    with spaces.aoti_capture(compile_pipe.transformer) as call:
-        # Create dummy inputs that match what Qwen expects
-        dummy_image = torch.randn(1, 3, 256, 256, device='cuda', dtype=torch.bfloat16)
-        dummy_prompt = "test prompt for compilation"
-        compile_pipe(dummy_image, dummy_prompt)
-    
-    # Export the transformer model
-    exported = torch.export.export(
-        compile_pipe.transformer,
-        args=call.args,
-        kwargs=call.kwargs,
-    )
-    
-    # Compile the exported model
-    return spaces.aoti_compile(exported)
+# Load LoRA for faster inference
+pipeline.load_lora_weights(
+    "lightx2v/Qwen-Image-Lightning", 
+    weight_name="Qwen-Image-Lightning-8steps-V2.0-bf16.safetensors"
+)
+pipeline.fuse_lora()
 
-# Apply AoT compilation
-try:
-    compiled_transformer = compile_qwen_transformer()
-    spaces.aoti_apply(compiled_transformer, pipeline.transformer)
-    print("✅ Qwen transformer successfully compiled with AoT")
-except Exception as e:
-    print(f"⚠️ AoT compilation failed: {e}")
 
-@spaces.GPU(duration=120)
+
+@spaces.GPU(duration=60)
 def edit_images(image1, image2, prompt, seed, true_cfg_scale, negative_prompt, num_steps, guidance_scale):
     if image1 is None or image2 is None:
         gr.Warning("Please upload both images")
@@ -93,7 +84,7 @@ example_images = [
 with gr.Blocks(css="footer {visibility: hidden}") as demo:
     gr.Markdown(
         """
-        # Qwen Image Edit Plus
+        # Qwen Image Edit Plus (Optimized)
         
         Upload two images and describe how you want them combined or edited together.
         
@@ -150,9 +141,9 @@ with gr.Blocks(css="footer {visibility: hidden}") as demo:
             )
             num_steps = gr.Slider(
                 label="Number of Inference Steps",
-                minimum=20,
+                minimum=8,
                 maximum=30,
-                value=30,
+                value=8,
                 step=1
             )
         
@@ -161,7 +152,7 @@ with gr.Blocks(css="footer {visibility: hidden}") as demo:
                 label="True CFG Scale",
                 minimum=1.0,
                 maximum=10.0,
-                value=4.0,
+                value=1.0,
                 step=0.5
             )
             guidance_scale = gr.Slider(
