@@ -1,5 +1,5 @@
 ---
-title: Testing New One
+title: Qwen-Image-Edit-2509
 emoji: 🌖
 colorFrom: gray
 colorTo: yellow
