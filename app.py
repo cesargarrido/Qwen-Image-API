@@ -102,8 +102,8 @@ with gr.Blocks(css="footer {visibility: hidden}") as demo:
             num_steps = gr.Slider(
                 label="Number of Inference Steps",
                 minimum=20,
-                maximum=100,
-                value=40,
+                maximum=30,
+                value=30,
                 step=1
             )
         
