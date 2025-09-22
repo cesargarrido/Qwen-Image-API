@@ -12,6 +12,44 @@ pipeline = QwenImageEditPlusPipeline.from_pretrained(
 pipeline.to('cuda')
 pipeline.set_progress_bar_config(disable=None)
 
+# AoT Compilation for Qwen Image Edit Plus
+@spaces.GPU(duration=1500)
+def compile_qwen_transformer():
+    import torch
+    from diffusers import QwenImageEditPlusPipeline
+    
+    # Create a temporary pipeline for compilation
+    compile_pipe = QwenImageEditPlusPipeline.from_pretrained(
+        "Qwen/Qwen-Image-Edit-2509", 
+        torch_dtype=torch.bfloat16
+    )
+    compile_pipe.to('cuda')
+    
+    # Capture inputs for the transformer
+    with spaces.aoti_capture(compile_pipe.transformer) as call:
+        # Create dummy inputs that match what Qwen expects
+        dummy_image = torch.randn(1, 3, 256, 256, device='cuda', dtype=torch.bfloat16)
+        dummy_prompt = "test prompt for compilation"
+        compile_pipe(dummy_image, dummy_prompt)
+    
+    # Export the transformer model
+    exported = torch.export.export(
+        compile_pipe.transformer,
+        args=call.args,
+        kwargs=call.kwargs,
+    )
+    
+    # Compile the exported model
+    return spaces.aoti_compile(exported)
+
+# Apply AoT compilation
+try:
+    compiled_transformer = compile_qwen_transformer()
+    spaces.aoti_apply(compiled_transformer, pipeline.transformer)
+    print("✅ Qwen transformer successfully compiled with AoT")
+except Exception as e:
+    print(f"⚠️ AoT compilation failed: {e}")
+
 @spaces.GPU(duration=120)
 def edit_images(image1, image2, prompt, seed, true_cfg_scale, negative_prompt, num_steps, guidance_scale):
     if image1 is None or image2 is None:
@@ -39,12 +77,17 @@ def edit_images(image1, image2, prompt, seed, true_cfg_scale, negative_prompt, n
         output = pipeline(**inputs)
         return output.images[0]
 
-# Example prompts
+# Example prompts and images
 example_prompts = [
     "The magician bear is on the left, the alchemist bear is on the right, facing each other in the central park square.",
     "Two characters standing side by side in a beautiful garden with flowers blooming",
     "The hero on the left and the villain on the right, facing off in an epic battle scene",
     "Two friends sitting together on a park bench, enjoying the sunset",
+]
+
+# Example image paths
+example_images = [
+    ["bear1.jpg", "bear2.jpg", "The magician bear is on the left, the alchemist bear is on the right, facing each other in the central park square."],
 ]
 
 with gr.Blocks(css="footer {visibility: hidden}") as demo:
@@ -87,9 +130,15 @@ with gr.Blocks(css="footer {visibility: hidden}") as demo:
         )
         
         gr.Examples(
+            examples=example_images,
+            inputs=[image1_input, image2_input, prompt_input],
+            label="Example Images and Prompts"
+        )
+        
+        gr.Examples(
             examples=[[p] for p in example_prompts],
             inputs=[prompt_input],
-            label="Example Prompts"
+            label="Example Prompts Only"
         )
     
     with gr.Accordion("Advanced Settings", open=False):
