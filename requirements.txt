@@ -12,3 +12,5 @@ tokenizers
 numpy
 requests
 peft
+fastapi
+uvicorn
